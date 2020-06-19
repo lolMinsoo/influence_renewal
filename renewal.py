@@ -4,7 +4,7 @@ from google.oauth2.service_account import Credentials
 import datetime
 import discord 
 
-from jshbot import data, configurations, plugins
+from jshbot import data, configurations, plugins, utilities 
 from jshbot.exceptions import ConfiguredBotException
 from jshbot.commands import (
     Command, SubCommand, ArgTypes, Arg, Opt, Elevation, MessageTypes, Response)
@@ -13,28 +13,23 @@ __version__ = '0.1.0'
 CBException = ConfiguredBotException('BDO Influence Renewal Plugin')
 uses_configuration = True
 
-
 ###################################################################################################
 ###################################################################################################
 ### These are specific to a guild anyways, don't need to change the spreadsheet shit. #############
 ###################################################################################################
 ###################################################################################################
 
-# EDITABLE VARIABLES
-SPREADSHEET_NAME = 'testerino'
-FORM_NAME = 'cappacino'
-MEMBER_LIST_NAME = 'kappacino'
 
-# GLOBAL VARIABLES
-index_of_form = None
-next_index = 0
-index_of_member_list = None
-list_of_family_names = []
+# SHEET NAMES
+SPREADSHEET_NAME = ''  				# Name of the spreadsheet itself
+FORM_NAME = ''						# Name of the renewal form
+MEMBER_LIST_NAME = ''				# Name of the member list form
+
+gc = None
 
 # SHEET SPECIFIC
-SHEET_TIMESTAMP = 1
-SHEET_FAMILY_NAME = 2  # not actually needed lmao
-SHEET_EMAIL_ADDRESS = 3
+SHEET_TIMESTAMP = 1			# These are rows for the form.
+SHEET_FAMILY_NAME = 2  
 SHEET_OFFICER_NAME = 4
 SHEET_DAILY_PAY_VALUE = 5
 
@@ -45,12 +40,14 @@ SHEET_DAILY_PAY_VALUE = 5
 ###################################################################################################
 
 # credentials
-try:
+@plugins.on_load
+def init_gs_client(bot):
+    global gc
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    credentials = Credentials.from_service_account_file('credentials.json', scopes=scope)
+    config = configurations.get(bot, __name__)
+    credentials = Credentials.from_service_account_info(config['credentials'], scopes=scope)
     gc = gspread.authorize(credentials)
-except:
-    raise CBException('ah fuk')
+
 
 async def check_whitelist(bot, context):
     config = configurations.get(bot, __name__)
@@ -83,16 +80,23 @@ def get_commands(bot):
 
 async def update_to_sheet(bot, context):
     """Updates family name to spreadsheet."""
+    global gc
     family_name, daily_pay_value = context.arguments
     family_name = family_name.lower()
     author_id = context.author.id
     response = Response()
 
+    # VAR
+    index_of_form = None
+    next_index = 0
+    index_of_member_list = None
+    list_of_family_names = []
+
     # opens spreadsheet
-    sh = gc.open(SPREADSHEET_NAME)
+    sh = await utilities.future(gc.open, SPREADSHEET_NAME)
 
     # gets all available worksheets
-    worksheet = sh.worksheets()
+    worksheet = await utilities.future(sh.worksheets)
 
     # get the index of the form we want
     for i, sheet in enumerate(worksheet):
@@ -100,21 +104,24 @@ async def update_to_sheet(bot, context):
             index_of_form = i
         if MEMBER_LIST_NAME in str(sheet):
             index_of_member_list = i
-
+            
     # checks to see if one of these doesn't exist
     if ((index_of_form is None) or (index_of_member_list is None)):
         response.content = 'Something went wrong when initializing sheets.'
         return response
 
     # getting member list
-    form_member_list = sh.get_worksheet(index_of_member_list).get_all_values()
+    form_member_data = await utilities.future(sh.get_worksheet, index_of_member_list)
+    form_member_list = await utilities.future(form_member_data.get_all_values)
     for i, row in enumerate(form_member_list):
         if i > 4:  # names start on row 4 here, first column
             if len(row[0]) != 0:
                 list_of_family_names.append(row[0].lower())
 
     # open the form sheet
-    form_values = sh.get_worksheet(index_of_form).get_all_values()
+    form_data = await utilities.future(sh.get_worksheet, index_of_form)
+    form_values = await utilities.future(form_data.get_all_values)
+    form = await utilities.future(sh.get_worksheet, index_of_form)
 
     # iterate over rows till we find an empty index
     for i, row in enumerate(form_values):
@@ -125,17 +132,15 @@ async def update_to_sheet(bot, context):
     current_time = datetime.datetime.now().strftime('%m/%d/%Y %H:%M:%S')
 
     # fill the sheet
-    form.update_cell(next_index, SHEET_TIMESTAMP, current_time)                 # row 1
-    form.update_cell(next_index, SHEET_FAMILY_NAME, family_name)                # row 2
-    form.update_cell(next_index, SHEET_OFFICER_NAME, str(context.author))       # row 4 TODO: does this work?
-    form.update_cell(next_index, SHEET_DAILY_PAY_VALUE, daily_pay_value)        # row 5
-    response.content = f'<@{author_id}> renewed {family_name} on {current_time} '
-                       f'with a daily pay value of {daily_pay_value}'
+    await utilities.future(form.update_cell, next_index, SHEET_TIMESTAMP, current_time)                 # row 1
+    await utilities.future(form.update_cell, next_index, SHEET_FAMILY_NAME, family_name)                # row 2
+    await utilities.future(form.update_cell, next_index, SHEET_OFFICER_NAME, str(context.author))       # row 4
+    await utilities.future(form.update_cell, next_index, SHEET_DAILY_PAY_VALUE, daily_pay_value)        # row 5
+    response.content = f'<@{author_id}> renewed {family_name} on {current_time} with a daily pay value of {daily_pay_value}'
 
     # well fuck
     if family_name not in list_of_family_names:
         response.content += f', however, {family_name} does not exist. Check spreadsheet/ask officer for help.'
 
     return response
-
 
