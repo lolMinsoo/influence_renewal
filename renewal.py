@@ -45,9 +45,12 @@ SHEET_DAILY_PAY_VALUE = 5
 ###################################################################################################
 
 # credentials
-scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-credentials = Credentials.from_service_account_file('credentials.json', scopes=scope)
-gc = gspread.authorize(credentials)
+try:
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    credentials = Credentials.from_service_account_file('credentials.json', scopes=scope)
+    gc = gspread.authorize(credentials)
+except:
+    raise CBException('ah fuk')
 
 async def check_whitelist(bot, context):
     config = configurations.get(bot, __name__)
@@ -126,9 +129,7 @@ async def update_to_sheet(bot, context):
     form.update_cell(next_index, SHEET_FAMILY_NAME, family_name)                # row 2
     form.update_cell(next_index, SHEET_OFFICER_NAME, str(context.author))       # row 4 TODO: does this work?
     form.update_cell(next_index, SHEET_DAILY_PAY_VALUE, daily_pay_value)        # row 5
-
-    
-    response.content = f'<@{author_id}> renewed {family_name} on {current_time} ' 
+    response.content = f'<@{author_id}> renewed {family_name} on {current_time} '
                        f'with a daily pay value of {daily_pay_value}'
 
     # well fuck
