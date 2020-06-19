@@ -1,0 +1,5 @@
+# If the whitelist is enabled, only the given guild IDs will
+# have access to the plugin
+use_whitelist: Yes
+whitelist:
+    - 514649051896217610
